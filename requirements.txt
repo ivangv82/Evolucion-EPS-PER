@@ -1,2 +1,6 @@
 streamlit
 pandas
+yfinance
+numpy
+requests
+matplotlib

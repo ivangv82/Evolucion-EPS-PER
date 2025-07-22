@@ -25,7 +25,7 @@ def cargar_mapeo_tickers_ciks(ruta_json):
 @st.cache_data
 def obtener_datos_sec(cik):
     """
-    Obtiene y procesa los datos de EPS de una empresa desde la API de la SEC.
+    Obtiene y procesa los datos de EPS de la SEC con una lógica de ordenación robusta.
     """
     url = f"https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}/us-gaap/EarningsPerShareBasic.json"
     headers = {"User-Agent": "ivan@formacionenbolsa.com"}
@@ -39,26 +39,28 @@ def obtener_datos_sec(cik):
     eps_data = pd.DataFrame(json_data["units"]["USD/shares"])
     eps_data = eps_data.rename(columns={"end": "Fecha", "val": "EPS Reportado"})
     
-    # --- ✅ CORRECCIÓN APLICADA AQUÍ ---
-    # Aseguramos que AMBAS columnas de fecha se traten como objetos datetime.
     eps_data["Fecha"] = pd.to_datetime(eps_data["Fecha"], errors="coerce")
     eps_data["filed"] = pd.to_datetime(eps_data["filed"], errors="coerce")
-    # --- FIN DE LA CORRECCIÓN ---
 
-    mask_10k = eps_data["form"].isin(["10-K", "10-K/A"]) & (eps_data["fp"] == "FY")
-    eps_10k_fy = eps_data[mask_10k].copy()
+    # Filtrar solo informes anuales (10-K, 10-K/A) de año fiscal completo (FY)
+    mask = eps_data["form"].isin(["10-K", "10-K/A"]) & (eps_data["fp"] == "FY")
+    eps_anual_data = eps_data[mask].copy()
 
-    if eps_10k_fy.empty:
+    if eps_anual_data.empty:
         return pd.DataFrame()
 
-    # Ahora la ordenación por 'filed' es cronológica y correcta.
-    eps_10k_fy.sort_values("filed", ascending=False, inplace=True)
+    # --- ✅ LÓGICA DE ORDENACIÓN CORREGIDA Y ROBUSTA ---
+    # 1. Ordenar por año fiscal y fecha de publicación, ambos descendentes.
+    eps_anual_data.sort_values(by=["fy", "filed"], ascending=[False, False], inplace=True)
+    # 2. Eliminar duplicados de año fiscal, quedándonos con el primero (el más reciente).
+    final_eps = eps_anual_data.drop_duplicates(subset="fy", keep="first")
+    # 3. Ordenar el resultado final por año fiscal de forma ascendente para el análisis.
+    final_eps.sort_values(by="fy", ascending=True, inplace=True)
+    # --- FIN DE LA CORRECCIÓN ---
     
-    # Se eliminan duplicados para obtener el informe más reciente de cada año fiscal.
-    eps_10k_anual = eps_10k_fy.drop_duplicates(subset="fy", keep="first").sort_values("fy")
-    eps_10k_anual = eps_10k_anual.rename(columns={"EPS Reportado": "EPS Año Fiscal"})
-    
-    return eps_10k_anual
+    final_eps = final_eps.rename(columns={"EPS Reportado": "EPS Año Fiscal"})
+    return final_eps
+
 
 @st.cache_data
 def obtener_datos_yfinance(ticker):
@@ -68,6 +70,7 @@ def obtener_datos_yfinance(ticker):
         return None, None
     
     info = stock.info
+    # Usamos el precio de cierre más reciente del historial como fallback si 'currentPrice' no está.
     current_price = info.get("currentPrice") or hist['Close'].iloc[-1]
     trailing_eps = info.get("trailingEps")
 
@@ -78,9 +81,11 @@ def obtener_datos_yfinance(ticker):
     return prices_df, {"price": current_price, "eps": trailing_eps}
 
 def calcular_per_y_fusionar(eps_df, prices_df):
-    eps_df = eps_df.sort_values("Fecha")
-    prices_df = prices_df.sort_values("Fecha")
-    eps_price_df = pd.merge_asof(eps_df, prices_df, on="Fecha", direction="backward")
+    # La fusión requiere que ambos DF estén ordenados por la clave de unión ('Fecha')
+    eps_df_sorted = eps_df.sort_values("Fecha")
+    prices_df_sorted = prices_df.sort_values("Fecha")
+    
+    eps_price_df = pd.merge_asof(eps_df_sorted, prices_df_sorted, on="Fecha", direction="backward")
     
     eps_price_df["PER"] = np.where(eps_price_df["EPS Año Fiscal"] > 0,
                                    eps_price_df["Precio"] / eps_price_df["EPS Año Fiscal"],
@@ -90,7 +95,7 @@ def calcular_per_y_fusionar(eps_df, prices_df):
 
 # ==============================
 # 📌 2. INTERFAZ PRINCIPAL EN STREAMLIT
-# (El resto de la interfaz no necesita cambios)
+# (No se necesitan cambios en la interfaz)
 # ==============================
 st.title("📊 Analizador de Valor Intrínseco")
 
@@ -123,11 +128,11 @@ if ticker_cik_map:
 
                     with tab1:
                         st.subheader(f"Situación Actual (TTM) a {datetime.now().strftime('%d/%m/%Y')}")
-                        per_ttm = (ttm_data['price'] / ttm_data['eps']) if ttm_data['price'] and ttm_data['eps'] and ttm_data['eps'] > 0 else "N/A"
+                        per_ttm = (ttm_data['price'] / ttm_data['eps']) if ttm_data.get('price') and ttm_data.get('eps') and ttm_data['eps'] > 0 else "N/A"
                         
                         col1, col2, col3 = st.columns(3)
-                        col1.metric("Precio Actual", f"${ttm_data['price']:.2f}" if ttm_data['price'] else "N/A")
-                        col2.metric("EPS (TTM)", f"${ttm_data['eps']:.2f}" if ttm_data['eps'] else "N/A")
+                        col1.metric("Precio Actual", f"${ttm_data['price']:.2f}" if ttm_data.get('price') else "N/A")
+                        col2.metric("EPS (TTM)", f"${ttm_data['eps']:.2f}" if ttm_data.get('eps') else "N/A")
                         col3.metric("PER (TTM)", f"{per_ttm:.2f}" if isinstance(per_ttm, float) else per_ttm)
                         st.markdown("---")
                         

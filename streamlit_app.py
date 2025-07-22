@@ -162,7 +162,7 @@ if ticker_cik_map:
                             per_opciones = { "PER (TTM)": per_ttm if isinstance(per_ttm, float) else None, "PER medio 10 años": per_promedio_10, "PER medio 5 años": per_promedio_5, "Ingresar PER manualmente": None }
                             per_seleccion = st.radio("Seleccione el **PER base**:", [k for k,v in per_opciones.items() if v is not None] + ["Ingresar PER manualmente"], key="per_radio")
                             if per_seleccion == "Ingresar PER manualmente":
-                                per_base = st.number_input("PER base:", min_value=0.1, step=0.1, format="%.2f", key="per_manual")
+                                per_base = st.number_input("PER base:", value=10.0, min_value=0.1, step=0.1, format="%.2f", key="per_manual")
                             else:
                                 per_base = per_opciones[per_seleccion]
                         
@@ -170,7 +170,7 @@ if ticker_cik_map:
                             cagr_opciones = { "CAGR últimos 10 años": eps_crecimiento_10, "CAGR últimos 5 años": eps_crecimiento_5, "Ingresar CAGR manualmente": None }
                             cagr_seleccion = st.radio("Seleccione el **CAGR del EPS**:", [k for k,v in cagr_opciones.items() if v is not None] + ["Ingresar CAGR manualmente"], key="cagr_radio")
                             if cagr_seleccion == "Ingresar CAGR manualmente":
-                                cagr_eps = st.number_input("CAGR del EPS (%):", min_value=-50.0, max_value=100.0, step=0.1, format="%.2f", key="cagr_manual")
+                                cagr_eps = st.number_input("CAGR del EPS (%):", value=5.0, min_value=-50.0, max_value=100.0, step=0.1, format="%.2f", key="cagr_manual")
                             else:
                                 cagr_eps = cagr_opciones[cagr_seleccion]
 

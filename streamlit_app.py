@@ -10,6 +10,7 @@ from datetime import datetime
 
 # ==============================
 # 📌 1. FUNCIONES OPTIMIZADAS Y CACHEADAS
+# (Sin cambios en esta sección)
 # ==============================
 
 @st.cache_data
@@ -24,9 +25,6 @@ def cargar_mapeo_tickers_ciks(ruta_json):
 
 @st.cache_data
 def obtener_datos_sec(cik):
-    """
-    Obtiene y procesa los datos de EPS de la SEC con una lógica de ordenación robusta.
-    """
     url = f"https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}/us-gaap/EarningsPerShareBasic.json"
     headers = {"User-Agent": "ivan@formacionenbolsa.com"}
     response = requests.get(url, headers=headers)
@@ -42,21 +40,15 @@ def obtener_datos_sec(cik):
     eps_data["Fecha"] = pd.to_datetime(eps_data["Fecha"], errors="coerce")
     eps_data["filed"] = pd.to_datetime(eps_data["filed"], errors="coerce")
 
-    # Filtrar solo informes anuales (10-K, 10-K/A) de año fiscal completo (FY)
     mask = eps_data["form"].isin(["10-K", "10-K/A"]) & (eps_data["fp"] == "FY")
     eps_anual_data = eps_data[mask].copy()
 
     if eps_anual_data.empty:
         return pd.DataFrame()
 
-    # --- ✅ LÓGICA DE ORDENACIÓN CORREGIDA Y ROBUSTA ---
-    # 1. Ordenar por año fiscal y fecha de publicación, ambos descendentes.
     eps_anual_data.sort_values(by=["fy", "filed"], ascending=[False, False], inplace=True)
-    # 2. Eliminar duplicados de año fiscal, quedándonos con el primero (el más reciente).
     final_eps = eps_anual_data.drop_duplicates(subset="fy", keep="first")
-    # 3. Ordenar el resultado final por año fiscal de forma ascendente para el análisis.
     final_eps.sort_values(by="fy", ascending=True, inplace=True)
-    # --- FIN DE LA CORRECCIÓN ---
     
     final_eps = final_eps.rename(columns={"EPS Reportado": "EPS Año Fiscal"})
     return final_eps
@@ -70,7 +62,6 @@ def obtener_datos_yfinance(ticker):
         return None, None
     
     info = stock.info
-    # Usamos el precio de cierre más reciente del historial como fallback si 'currentPrice' no está.
     current_price = info.get("currentPrice") or hist['Close'].iloc[-1]
     trailing_eps = info.get("trailingEps")
 
@@ -81,7 +72,6 @@ def obtener_datos_yfinance(ticker):
     return prices_df, {"price": current_price, "eps": trailing_eps}
 
 def calcular_per_y_fusionar(eps_df, prices_df):
-    # La fusión requiere que ambos DF estén ordenados por la clave de unión ('Fecha')
     eps_df_sorted = eps_df.sort_values("Fecha")
     prices_df_sorted = prices_df.sort_values("Fecha")
     
@@ -95,9 +85,14 @@ def calcular_per_y_fusionar(eps_df, prices_df):
 
 # ==============================
 # 📌 2. INTERFAZ PRINCIPAL EN STREAMLIT
-# (No se necesitan cambios en la interfaz)
 # ==============================
 st.title("📊 Analizador de Valor Intrínseco")
+
+# --- ✅ CAMBIO CLAVE: INICIALIZACIÓN DEL ESTADO DE SESIÓN ---
+# Si 'show_projection' no existe en el estado de la sesión, lo inicializamos a False.
+if 'show_projection' not in st.session_state:
+    st.session_state.show_projection = False
+# --- FIN DEL CAMBIO ---
 
 ruta_json = "company_tickers.json"
 ticker_cik_map = cargar_mapeo_tickers_ciks(ruta_json)
@@ -127,6 +122,7 @@ if ticker_cik_map:
                     tab1, tab2, tab3 = st.tabs(["📊 Resumen y Gráficos", "💡 Proyección de Valor", "🗃️ Datos Completos"])
 
                     with tab1:
+                        # (Sin cambios en esta pestaña)
                         st.subheader(f"Situación Actual (TTM) a {datetime.now().strftime('%d/%m/%Y')}")
                         per_ttm = (ttm_data['price'] / ttm_data['eps']) if ttm_data.get('price') and ttm_data.get('eps') and ttm_data['eps'] > 0 else "N/A"
                         
@@ -172,71 +168,74 @@ if ticker_cik_map:
                         })
                         st.table(crecimiento_df)
 
+
                     with tab2:
                         st.subheader("💡 Proyección de Precio Intrínseco")
-                        projection_container = st.container()
+                        
+                        # --- ✅ CAMBIO CLAVE: USO DE st.toggle Y st.session_state ---
+                        # Usamos un interruptor que modifica directamente el estado de la sesión.
+                        st.toggle("Hacer una previsión del precio", key="show_projection")
 
-                        with projection_container:
-                            opcion_proyeccion = st.radio("¿Desea hacer una previsión del precio?", ("No", "Sí"), key="proy_radio", horizontal=True)
+                        # Mostramos la sección de proyección si el estado de la sesión es True.
+                        if st.session_state.show_projection:
+                            st.markdown("---") 
+                            st.write("##### **Parámetros de la Proyección**")
+
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                per_opciones = { "PER (TTM)": per_ttm if isinstance(per_ttm, float) else None, "PER medio 10 años": per_promedio_10, "PER medio 5 años": per_promedio_5, "Ingresar PER manualmente": None }
+                                per_seleccion = st.radio("Seleccione el **PER base**:", [k for k,v in per_opciones.items() if v is not None] + ["Ingresar PER manualmente"], key="per_radio")
+                                if per_seleccion == "Ingresar PER manualmente":
+                                    per_base = st.number_input("PER base:", min_value=0.1, step=0.1, format="%.2f", key="per_manual")
+                                else:
+                                    per_base = per_opciones[per_seleccion]
                             
-                            if opcion_proyeccion == "Sí":
-                                st.markdown("---") 
-                                st.write("##### **Parámetros de la Proyección**")
+                            with col2:
+                                cagr_opciones = { "CAGR últimos 10 años": eps_crecimiento_10, "CAGR últimos 5 años": eps_crecimiento_5, "Ingresar CAGR manualmente": None }
+                                cagr_seleccion = st.radio("Seleccione el **CAGR del EPS**:", [k for k,v in cagr_opciones.items() if v is not None] + ["Ingresar CAGR manualmente"], key="cagr_radio")
+                                if cagr_seleccion == "Ingresar CAGR manualmente":
+                                    cagr_eps = st.number_input("CAGR del EPS (%):", min_value=-50.0, max_value=100.0, step=0.1, format="%.2f", key="cagr_manual")
+                                else:
+                                    cagr_eps = cagr_opciones[cagr_seleccion]
 
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    per_opciones = { "PER (TTM)": per_ttm if isinstance(per_ttm, float) else None, "PER medio 10 años": per_promedio_10, "PER medio 5 años": per_promedio_5, "Ingresar PER manualmente": None }
-                                    per_seleccion = st.radio("Seleccione el **PER base**:", [k for k,v in per_opciones.items() if v is not None] + ["Ingresar PER manualmente"], key="per_radio")
-                                    if per_seleccion == "Ingresar PER manualmente":
-                                        per_base = st.number_input("PER base:", min_value=0.1, step=0.1, format="%.2f", key="per_manual")
-                                    else:
-                                        per_base = per_opciones[per_seleccion]
+                            if per_base and cagr_eps is not None:
+                                st.markdown("---")
+                                current_eps = eps_price_df["EPS Año Fiscal"].iloc[-1]
+                                current_fy = int(eps_price_df["fy"].iloc[-1])
+                                años_futuros = np.arange(1, 6)
+                                future_fys = [current_fy + i for i in años_futuros]
+                                projected_eps = current_eps * ((1 + cagr_eps / 100) ** años_futuros)
                                 
-                                with col2:
-                                    cagr_opciones = { "CAGR últimos 10 años": eps_crecimiento_10, "CAGR últimos 5 años": eps_crecimiento_5, "Ingresar CAGR manualmente": None }
-                                    cagr_seleccion = st.radio("Seleccione el **CAGR del EPS**:", [k for k,v in cagr_opciones.items() if v is not None] + ["Ingresar CAGR manualmente"], key="cagr_radio")
-                                    if cagr_seleccion == "Ingresar CAGR manualmente":
-                                        cagr_eps = st.number_input("CAGR del EPS (%):", min_value=-50.0, max_value=100.0, step=0.1, format="%.2f", key="cagr_manual")
-                                    else:
-                                        cagr_eps = cagr_opciones[cagr_seleccion]
+                                precio_pesimista = projected_eps * (per_base * 0.8)
+                                precio_base_val = projected_eps * per_base
+                                precio_optimista = projected_eps * (per_base * 1.2)
 
-                                if per_base and cagr_eps is not None:
-                                    st.markdown("---")
-                                    current_eps = eps_price_df["EPS Año Fiscal"].iloc[-1]
-                                    current_fy = int(eps_price_df["fy"].iloc[-1])
-                                    años_futuros = np.arange(1, 6)
-                                    future_fys = [current_fy + i for i in años_futuros]
-                                    projected_eps = current_eps * ((1 + cagr_eps / 100) ** años_futuros)
-                                    
-                                    precio_pesimista = projected_eps * (per_base * 0.8)
-                                    precio_base_val = projected_eps * per_base
-                                    precio_optimista = projected_eps * (per_base * 1.2)
+                                proyeccion_df = pd.DataFrame({
+                                    "Año Fiscal": future_fys, "EPS Proyectado": projected_eps,
+                                    "Precio (Pesimista)": precio_pesimista, "Precio (Base)": precio_base_val,
+                                    "Precio (Optimista)": precio_optimista
+                                })
+                                st.subheader("📊 Proyección de Precio en los Próximos 5 Años")
+                                st.table(proyeccion_df.round(2))
 
-                                    proyeccion_df = pd.DataFrame({
-                                        "Año Fiscal": future_fys, "EPS Proyectado": projected_eps,
-                                        "Precio (Pesimista)": precio_pesimista, "Precio (Base)": precio_base_val,
-                                        "Precio (Optimista)": precio_optimista
-                                    })
-                                    st.subheader("📊 Proyección de Precio en los Próximos 5 Años")
-                                    st.table(proyeccion_df.round(2))
+                                st.subheader("📈 Evolución: Precio Histórico vs. Proyección")
+                                fig2, ax = plt.subplots(figsize=(10, 5))
+                                
+                                historical_df = eps_price_df.tail(10)
+                                ax.plot(historical_df["fy"], historical_df["Precio"], marker="o", linestyle="-", color="blue", label="Precio Histórico Anual")
+                                
+                                ax.plot(future_fys, precio_pesimista, marker="o", linestyle="--", color="red", label="Proyección Pesimista")
+                                ax.plot(future_fys, precio_base_val, marker="o", linestyle="--", color="green", label="Proyección Base")
+                                ax.plot(future_fys, precio_optimista, marker="o", linestyle="--", color="orange", label="Proyección Optimista")
 
-                                    st.subheader("📈 Evolución: Precio Histórico vs. Proyección")
-                                    fig2, ax = plt.subplots(figsize=(10, 5))
-                                    
-                                    historical_df = eps_price_df.tail(10)
-                                    ax.plot(historical_df["fy"], historical_df["Precio"], marker="o", linestyle="-", color="blue", label="Precio Histórico Anual")
-                                    
-                                    ax.plot(future_fys, precio_pesimista, marker="o", linestyle="--", color="red", label="Proyección Pesimista")
-                                    ax.plot(future_fys, precio_base_val, marker="o", linestyle="--", color="green", label="Proyección Base")
-                                    ax.plot(future_fys, precio_optimista, marker="o", linestyle="--", color="orange", label="Proyección Optimista")
-
-                                    ax.set_xlabel("Año Fiscal")
-                                    ax.set_ylabel("Precio (USD)")
-                                    ax.legend()
-                                    ax.grid(True, linestyle='--', alpha=0.6)
-                                    st.pyplot(fig2)
+                                ax.set_xlabel("Año Fiscal")
+                                ax.set_ylabel("Precio (USD)")
+                                ax.legend()
+                                ax.grid(True, linestyle='--', alpha=0.6)
+                                st.pyplot(fig2)
 
                     with tab3:
+                        # (Sin cambios en esta pestaña)
                         st.subheader("🗃️ Datos Históricos Completos")
                         st.write("A continuación se muestran los datos completos utilizados para el análisis.")
                         st.dataframe(eps_price_df.round(2))

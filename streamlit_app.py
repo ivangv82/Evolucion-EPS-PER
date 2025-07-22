@@ -169,7 +169,7 @@ if ticker_cik_map:
                             per_seleccion = st.radio("Seleccione el **PER base**:", [k for k,v in per_opciones.items() if v is not None] + ["Ingresar PER manualmente"], 
                                                    key="per_radio", help="Este es el múltiplo PER que se aplicará a los beneficios futuros para estimar el precio. Puedes usar un promedio histórico, el actual (TTM) o uno personalizado.")
                             if per_seleccion == "Ingresar PER manualmente":
-                                per_base = st.number_input("PER base:", min_value=0.1, step=0.1, format="%.2f", key="per_manual")
+                                per_base = st.number_input("PER base:", value=10.0, min_value=0.1, step=0.1, format="%.2f", key="per_manual")
                             else:
                                 per_base = per_opciones[per_seleccion]
                         

@@ -6,12 +6,12 @@ import numpy as np
 import json
 import os
 import matplotlib.pyplot as plt
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ==============================
 # 📌 1. FUNCIONES
+# (Sin cambios en esta sección)
 # ==============================
-
 @st.cache_data
 def cargar_mapeo_tickers_ciks(ruta_json):
     if not os.path.exists(ruta_json):
@@ -29,25 +29,19 @@ def obtener_datos_sec(cik):
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     json_data = response.json()
-    
     if "USD/shares" not in json_data["units"]:
         return None
-
     eps_data = pd.DataFrame(json_data["units"]["USD/shares"])
     eps_data = eps_data.rename(columns={"end": "Fecha", "val": "EPS Reportado"})
     eps_data["Fecha"] = pd.to_datetime(eps_data["Fecha"], errors="coerce")
     eps_data["filed"] = pd.to_datetime(eps_data["filed"], errors="coerce")
-    
     mask = eps_data["form"].isin(["10-K", "10-K/A"]) & (eps_data["fp"] == "FY")
     eps_anual_data = eps_data[mask].copy()
-
     if eps_anual_data.empty:
         return pd.DataFrame()
-
     eps_anual_data.sort_values(by=["fy", "filed"], ascending=[False, False], inplace=True)
     final_eps = eps_anual_data.drop_duplicates(subset="fy", keep="first")
     final_eps.sort_values(by="fy", ascending=True, inplace=True)
-    
     final_eps = final_eps.rename(columns={"EPS Reportado": "EPS Año Fiscal"})
     return final_eps
 
@@ -57,21 +51,18 @@ def obtener_datos_yfinance(ticker):
     hist = stock.history(period="max")
     if hist.empty:
         return None, None
-    
     info = stock.info
     current_price = info.get("currentPrice") or hist['Close'].iloc[-1]
     trailing_eps = info.get("trailingEps")
     prices_df = hist["Close"].reset_index()
     prices_df.columns = ["Fecha", "Precio"]
     prices_df["Fecha"] = pd.to_datetime(prices_df["Fecha"]).dt.tz_localize(None)
-    
     return prices_df, {"price": current_price, "eps": trailing_eps}
 
 def calcular_per_y_fusionar(eps_df, prices_df):
     eps_df_sorted = eps_df.sort_values("Fecha")
     prices_df_sorted = prices_df.sort_values("Fecha")
     eps_price_df = pd.merge_asof(eps_df_sorted, prices_df_sorted, on="Fecha", direction="backward")
-    
     eps_price_df["PER"] = np.where(eps_price_df["EPS Año Fiscal"] > 0,
                                    eps_price_df["Precio"] / eps_price_df["EPS Año Fiscal"],
                                    None)
@@ -115,6 +106,7 @@ if ticker_cik_map:
                     tab1, tab2, tab3 = st.tabs(["📊 Resumen y Gráficos", "💡 Proyección de Valor", "🗃️ Datos Completos"])
 
                     with tab1:
+                        # (Sin cambios en esta pestaña)
                         st.subheader(f"Situación Actual (TTM) a {datetime.now().strftime('%d/%m/%Y')}")
                         per_ttm = (ttm_data['price'] / ttm_data['eps']) if ttm_data.get('price') and ttm_data.get('eps') and ttm_data['eps'] > 0 else "N/A"
                         
@@ -198,17 +190,29 @@ if ticker_cik_map:
                                     "Precio (Optimista)": projected_eps * (per_base * 1.2)
                                 })
                                 
-                                fig2, ax = plt.subplots(figsize=(10, 5))
-                                historical_df = eps_price_df.tail(10)
-                                ax.plot(historical_df["fy"], historical_df["Precio"], marker="o", linestyle="-", color="blue", label="Precio Histórico Anual")
-                                ax.plot(future_fys, proyeccion_df["Precio (Pesimista)"], marker="o", linestyle="--", color="red", label="Proyección Pesimista")
-                                ax.plot(future_fys, proyeccion_df["Precio (Base)"], marker="o", linestyle="--", color="green", label="Proyección Base")
-                                ax.plot(future_fys, proyeccion_df["Precio (Optimista)"], marker="o", linestyle="--", color="orange", label="Proyección Optimista")
-                                ax.set_xlabel("Año Fiscal")
+                                # --- ✅ CAMBIO CLAVE: GRÁFICO CON PRECIO DIARIO ---
+                                fig2, ax = plt.subplots(figsize=(12, 6))
+
+                                # 1. Dibuja la evolución del precio diario de los últimos 10 años
+                                ten_years_ago = datetime.now() - timedelta(days=365*10)
+                                historical_prices_daily = precios_df[precios_df['Fecha'] > ten_years_ago]
+                                ax.plot(historical_prices_daily['Fecha'], historical_prices_daily['Precio'], color="royalblue", label="Precio Histórico Diario")
+
+                                # 2. Dibuja las proyecciones futuras
+                                # Creamos fechas futuras para poder dibujarlas en el mismo eje de tiempo
+                                future_dates = [datetime(fy, 12, 31) for fy in future_fys]
+                                ax.plot(future_dates, proyeccion_df["Precio (Pesimista)"], marker="o", linestyle="--", color="red", label="Proyección Pesimista")
+                                ax.plot(future_dates, proyeccion_df["Precio (Base)"], marker="o", linestyle="--", color="green", label="Proyección Base")
+                                ax.plot(future_dates, proyeccion_df["Precio (Optimista)"], marker="o", linestyle="--", color="orange", label="Proyección Optimista")
+                                # --- FIN DEL CAMBIO ---
+
+                                ax.set_title(f"Evolución y Proyección de Precio para {ticker}", fontsize=16)
+                                ax.set_xlabel("Fecha")
                                 ax.set_ylabel("Precio (USD)")
                                 ax.legend()
                                 ax.grid(True, linestyle='--', alpha=0.6)
-                                
+                                plt.tight_layout()
+
                                 st.session_state.projection_results = { "table": proyeccion_df, "figure": fig2 }
                             else:
                                 st.warning("Por favor, asegúrate de que los valores de PER y CAGR son válidos antes de calcular.")

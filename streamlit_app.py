@@ -12,7 +12,6 @@ from datetime import datetime
 # 📌 1. FUNCIONES OPTIMIZADAS Y CACHEADAS
 # (Sin cambios en esta sección)
 # ==============================
-
 @st.cache_data
 def cargar_mapeo_tickers_ciks(ruta_json):
     if not os.path.exists(ruta_json):
@@ -30,29 +29,21 @@ def obtener_datos_sec(cik):
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     json_data = response.json()
-    
     if "USD/shares" not in json_data["units"]:
         return None
-
     eps_data = pd.DataFrame(json_data["units"]["USD/shares"])
     eps_data = eps_data.rename(columns={"end": "Fecha", "val": "EPS Reportado"})
-    
     eps_data["Fecha"] = pd.to_datetime(eps_data["Fecha"], errors="coerce")
     eps_data["filed"] = pd.to_datetime(eps_data["filed"], errors="coerce")
-
     mask = eps_data["form"].isin(["10-K", "10-K/A"]) & (eps_data["fp"] == "FY")
     eps_anual_data = eps_data[mask].copy()
-
     if eps_anual_data.empty:
         return pd.DataFrame()
-
     eps_anual_data.sort_values(by=["fy", "filed"], ascending=[False, False], inplace=True)
     final_eps = eps_anual_data.drop_duplicates(subset="fy", keep="first")
     final_eps.sort_values(by="fy", ascending=True, inplace=True)
-    
     final_eps = final_eps.rename(columns={"EPS Reportado": "EPS Año Fiscal"})
     return final_eps
-
 
 @st.cache_data
 def obtener_datos_yfinance(ticker):
@@ -60,23 +51,18 @@ def obtener_datos_yfinance(ticker):
     hist = stock.history(period="max")
     if hist.empty:
         return None, None
-    
     info = stock.info
     current_price = info.get("currentPrice") or hist['Close'].iloc[-1]
     trailing_eps = info.get("trailingEps")
-
     prices_df = hist["Close"].reset_index()
     prices_df.columns = ["Fecha", "Precio"]
     prices_df["Fecha"] = pd.to_datetime(prices_df["Fecha"]).dt.tz_localize(None)
-    
     return prices_df, {"price": current_price, "eps": trailing_eps}
 
 def calcular_per_y_fusionar(eps_df, prices_df):
     eps_df_sorted = eps_df.sort_values("Fecha")
     prices_df_sorted = prices_df.sort_values("Fecha")
-    
     eps_price_df = pd.merge_asof(eps_df_sorted, prices_df_sorted, on="Fecha", direction="backward")
-    
     eps_price_df["PER"] = np.where(eps_price_df["EPS Año Fiscal"] > 0,
                                    eps_price_df["Precio"] / eps_price_df["EPS Año Fiscal"],
                                    None)
@@ -88,12 +74,6 @@ def calcular_per_y_fusionar(eps_df, prices_df):
 # ==============================
 st.title("📊 Analizador de Valor Intrínseco")
 
-# --- ✅ CAMBIO CLAVE: INICIALIZACIÓN DEL ESTADO DE SESIÓN ---
-# Si 'show_projection' no existe en el estado de la sesión, lo inicializamos a False.
-if 'show_projection' not in st.session_state:
-    st.session_state.show_projection = False
-# --- FIN DEL CAMBIO ---
-
 ruta_json = "company_tickers.json"
 ticker_cik_map = cargar_mapeo_tickers_ciks(ruta_json)
 
@@ -101,6 +81,7 @@ if ticker_cik_map:
     ticker = st.text_input("Introduce el ticker de la empresa (Ej: AAPL, MSFT, GOOGL):", key="ticker_input").strip().upper()
 
     if ticker:
+        # Se elimina la inicialización de st.session_state, ya no es necesaria.
         CIK = ticker_cik_map.get(ticker)
         
         if not CIK:
@@ -172,13 +153,10 @@ if ticker_cik_map:
                     with tab2:
                         st.subheader("💡 Proyección de Precio Intrínseco")
                         
-                        # --- ✅ CAMBIO CLAVE: USO DE st.toggle Y st.session_state ---
-                        # Usamos un interruptor que modifica directamente el estado de la sesión.
-                        st.toggle("Hacer una previsión del precio", key="show_projection")
-
-                        # Mostramos la sección de proyección si el estado de la sesión es True.
-                        if st.session_state.show_projection:
-                            st.markdown("---") 
+                        # --- ✅ CAMBIO CLAVE: USO DE st.expander ---
+                        # Se reemplaza el toggle y el session_state por un contenedor expandible.
+                        # Esto soluciona definitivamente el problema del "salto" de página.
+                        with st.expander("▶️ Haz clic aquí para realizar una previsión del precio"):
                             st.write("##### **Parámetros de la Proyección**")
 
                             col1, col2 = st.columns(2)
@@ -233,6 +211,7 @@ if ticker_cik_map:
                                 ax.legend()
                                 ax.grid(True, linestyle='--', alpha=0.6)
                                 st.pyplot(fig2)
+
 
                     with tab3:
                         # (Sin cambios en esta pestaña)

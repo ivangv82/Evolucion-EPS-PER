@@ -81,7 +81,13 @@ if ticker_cik_map:
     ticker = st.text_input("Introduce el ticker de la empresa (Ej: AAPL, MSFT, GOOGL):", key="ticker_input").strip().upper()
 
     if ticker:
-        # Se elimina la inicialización de st.session_state, ya no es necesaria.
+        # --- ✅ GESTIÓN DE ESTADO PARA LAS PROYECCIONES ---
+        # Si el ticker cambia, reseteamos los resultados de la proyección guardada.
+        if 'current_ticker' not in st.session_state or st.session_state.current_ticker != ticker:
+            st.session_state.current_ticker = ticker
+            st.session_state.projection_results = None
+        # --- FIN DE LA GESTIÓN DE ESTADO ---
+
         CIK = ticker_cik_map.get(ticker)
         
         if not CIK:
@@ -151,66 +157,72 @@ if ticker_cik_map:
 
 
                     with tab2:
+                        # --- ✅ CAMBIO CLAVE: LÓGICA DE "CALCULAR" ---
                         st.subheader("💡 Proyección de Precio Intrínseco")
+                        st.write("Selecciona los parámetros y pulsa 'Calcular Proyección' para ver los resultados.")
+
+                        # 1. Los controles para seleccionar parámetros están siempre visibles.
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            per_opciones = { "PER (TTM)": per_ttm if isinstance(per_ttm, float) else None, "PER medio 10 años": per_promedio_10, "PER medio 5 años": per_promedio_5, "Ingresar PER manualmente": None }
+                            per_seleccion = st.radio("Seleccione el **PER base**:", [k for k,v in per_opciones.items() if v is not None] + ["Ingresar PER manualmente"], key="per_radio")
+                            if per_seleccion == "Ingresar PER manualmente":
+                                per_base = st.number_input("PER base:", min_value=0.1, step=0.1, format="%.2f", key="per_manual")
+                            else:
+                                per_base = per_opciones[per_seleccion]
                         
-                        # --- ✅ CAMBIO CLAVE: USO DE st.expander ---
-                        # Se reemplaza el toggle y el session_state por un contenedor expandible.
-                        # Esto soluciona definitivamente el problema del "salto" de página.
-                        with st.expander("▶️ Haz clic aquí para realizar una previsión del precio"):
-                            st.write("##### **Parámetros de la Proyección**")
+                        with col2:
+                            cagr_opciones = { "CAGR últimos 10 años": eps_crecimiento_10, "CAGR últimos 5 años": eps_crecimiento_5, "Ingresar CAGR manualmente": None }
+                            cagr_seleccion = st.radio("Seleccione el **CAGR del EPS**:", [k for k,v in cagr_opciones.items() if v is not None] + ["Ingresar CAGR manualmente"], key="cagr_radio")
+                            if cagr_seleccion == "Ingresar CAGR manualmente":
+                                cagr_eps = st.number_input("CAGR del EPS (%):", min_value=-50.0, max_value=100.0, step=0.1, format="%.2f", key="cagr_manual")
+                            else:
+                                cagr_eps = cagr_opciones[cagr_seleccion]
 
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                per_opciones = { "PER (TTM)": per_ttm if isinstance(per_ttm, float) else None, "PER medio 10 años": per_promedio_10, "PER medio 5 años": per_promedio_5, "Ingresar PER manualmente": None }
-                                per_seleccion = st.radio("Seleccione el **PER base**:", [k for k,v in per_opciones.items() if v is not None] + ["Ingresar PER manualmente"], key="per_radio")
-                                if per_seleccion == "Ingresar PER manualmente":
-                                    per_base = st.number_input("PER base:", min_value=0.1, step=0.1, format="%.2f", key="per_manual")
-                                else:
-                                    per_base = per_opciones[per_seleccion]
-                            
-                            with col2:
-                                cagr_opciones = { "CAGR últimos 10 años": eps_crecimiento_10, "CAGR últimos 5 años": eps_crecimiento_5, "Ingresar CAGR manualmente": None }
-                                cagr_seleccion = st.radio("Seleccione el **CAGR del EPS**:", [k for k,v in cagr_opciones.items() if v is not None] + ["Ingresar CAGR manualmente"], key="cagr_radio")
-                                if cagr_seleccion == "Ingresar CAGR manualmente":
-                                    cagr_eps = st.number_input("CAGR del EPS (%):", min_value=-50.0, max_value=100.0, step=0.1, format="%.2f", key="cagr_manual")
-                                else:
-                                    cagr_eps = cagr_opciones[cagr_seleccion]
-
+                        # 2. El botón "Calcular" que dispara el análisis.
+                        if st.button("📊 Calcular Proyección"):
                             if per_base and cagr_eps is not None:
-                                st.markdown("---")
+                                # Se realizan los cálculos
                                 current_eps = eps_price_df["EPS Año Fiscal"].iloc[-1]
                                 current_fy = int(eps_price_df["fy"].iloc[-1])
                                 años_futuros = np.arange(1, 6)
                                 future_fys = [current_fy + i for i in años_futuros]
                                 projected_eps = current_eps * ((1 + cagr_eps / 100) ** años_futuros)
                                 
-                                precio_pesimista = projected_eps * (per_base * 0.8)
-                                precio_base_val = projected_eps * per_base
-                                precio_optimista = projected_eps * (per_base * 1.2)
-
                                 proyeccion_df = pd.DataFrame({
                                     "Año Fiscal": future_fys, "EPS Proyectado": projected_eps,
-                                    "Precio (Pesimista)": precio_pesimista, "Precio (Base)": precio_base_val,
-                                    "Precio (Optimista)": precio_optimista
+                                    "Precio (Pesimista)": projected_eps * (per_base * 0.8),
+                                    "Precio (Base)": projected_eps * per_base,
+                                    "Precio (Optimista)": projected_eps * (per_base * 1.2)
                                 })
-                                st.subheader("📊 Proyección de Precio en los Próximos 5 Años")
-                                st.table(proyeccion_df.round(2))
-
-                                st.subheader("📈 Evolución: Precio Histórico vs. Proyección")
-                                fig2, ax = plt.subplots(figsize=(10, 5))
                                 
+                                fig2, ax = plt.subplots(figsize=(10, 5))
                                 historical_df = eps_price_df.tail(10)
                                 ax.plot(historical_df["fy"], historical_df["Precio"], marker="o", linestyle="-", color="blue", label="Precio Histórico Anual")
-                                
-                                ax.plot(future_fys, precio_pesimista, marker="o", linestyle="--", color="red", label="Proyección Pesimista")
-                                ax.plot(future_fys, precio_base_val, marker="o", linestyle="--", color="green", label="Proyección Base")
-                                ax.plot(future_fys, precio_optimista, marker="o", linestyle="--", color="orange", label="Proyección Optimista")
-
+                                ax.plot(future_fys, proyeccion_df["Precio (Pesimista)"], marker="o", linestyle="--", color="red", label="Proyección Pesimista")
+                                ax.plot(future_fys, proyeccion_df["Precio (Base)"], marker="o", linestyle="--", color="green", label="Proyección Base")
+                                ax.plot(future_fys, proyeccion_df["Precio (Optimista)"], marker="o", linestyle="--", color="orange", label="Proyección Optimista")
                                 ax.set_xlabel("Año Fiscal")
                                 ax.set_ylabel("Precio (USD)")
                                 ax.legend()
                                 ax.grid(True, linestyle='--', alpha=0.6)
-                                st.pyplot(fig2)
+                                
+                                # 3. Guardamos los resultados en el estado de la sesión.
+                                st.session_state.projection_results = {
+                                    "table": proyeccion_df,
+                                    "figure": fig2
+                                }
+                            else:
+                                st.warning("Por favor, asegúrate de que los valores de PER y CAGR son válidos antes de calcular.")
+                                st.session_state.projection_results = None
+
+                        # 4. Mostramos los resultados si existen en el estado de la sesión.
+                        if st.session_state.get('projection_results'):
+                            st.markdown("---")
+                            st.subheader("📊 Proyección de Precio en los Próximos 5 Años")
+                            st.table(st.session_state.projection_results["table"].round(2))
+                            st.subheader("📈 Evolución: Precio Histórico vs. Proyección")
+                            st.pyplot(st.session_state.projection_results["figure"])
 
 
                     with tab3:

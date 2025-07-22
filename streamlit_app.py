@@ -189,18 +189,16 @@ if ticker_cik_map:
                                     "Precio (Optimista)": projected_eps * (per_base * 1.2)
                                 })
                                 
-                                # --- ✅ CAMBIO CLAVE: LÓGICA DEL GRÁFICO DE PROYECCIÓN ---
                                 fig2, ax = plt.subplots(figsize=(12, 6))
 
-                                # 1. Histórico: Precio diario de los últimos 10 años.
                                 ten_years_ago = datetime.now() - timedelta(days=365*10)
                                 historical_prices_daily = precios_df[precios_df['Fecha'] > ten_years_ago]
                                 ax.plot(historical_prices_daily['Fecha'], historical_prices_daily['Precio'], color="royalblue", label="Precio Histórico Diario")
 
-                                # 2. Proyecciones: Se dibujan como líneas independientes que parten en el futuro.
-                                # La primera proyección se sitúa un año después de la fecha del último informe fiscal anual.
-                                last_fiscal_report_date = eps_price_df['Fecha'].iloc[-1]
-                                future_dates = [last_fiscal_report_date + timedelta(days=365 * int(i)) for i in años_futuros]
+                                # --- ✅ CAMBIO CLAVE: LÓGICA DE FECHAS DE PROYECCIÓN ---
+                                # La proyección ahora comienza un año DESPUÉS de la fecha actual.
+                                start_date_for_projection = datetime.now()
+                                future_dates = [start_date_for_projection + timedelta(days=365 * int(i)) for i in años_futuros]
 
                                 ax.plot(future_dates, proyeccion_df["Precio (Pesimista)"], marker="o", linestyle="--", color="red", label="Proyección Pesimista")
                                 ax.plot(future_dates, proyeccion_df["Precio (Base)"], marker="o", linestyle="--", color="green", label="Proyección Base")

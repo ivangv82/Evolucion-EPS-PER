@@ -106,69 +106,78 @@ if ticker_cik_map:
                     tab1, tab2, tab3 = st.tabs(["📊 Resumen y Gráficos", "💡 Proyección de Valor", "🗃️ Datos Completos"])
 
                     with tab1:
-                        st.subheader(f"Situación Actual (TTM) a {datetime.now().strftime('%d/%m/%Y')}")
-                        per_ttm = (ttm_data['price'] / ttm_data['eps']) if ttm_data.get('price') and ttm_data.get('eps') and ttm_data['eps'] > 0 else "N/A"
+                        # ✅ MEJORA: Títulos como Pasos y contenedores para guiar al usuario
+                        with st.container(border=True):
+                            st.subheader("Paso 1: Entender el Presente (Situación Actual)")
+                            per_ttm = (ttm_data['price'] / ttm_data['eps']) if ttm_data.get('price') and ttm_data.get('eps') and ttm_data['eps'] > 0 else "N/A"
+                            
+                            col1, col2, col3 = st.columns(3)
+                            col1.metric("Precio Actual", f"${ttm_data['price']:.2f}" if ttm_data.get('price') else "N/A")
+                            # ✅ MEJORA: Tooltips de ayuda
+                            col2.metric("EPS (TTM)", f"${ttm_data['eps']:.2f}" if ttm_data.get('eps') else "N/A", help="EPS (Trailing Twelve Months): Suma de los beneficios por acción de los últimos cuatro trimestres reportados. Es el dato de beneficios más reciente.")
+                            col3.metric("PER (TTM)", f"{per_ttm:.2f}" if isinstance(per_ttm, float) else per_ttm, help="Price-to-Earnings (TTM): Se calcula dividiendo el Precio Actual entre el EPS (TTM). Indica cuántas veces se está pagando el beneficio del último año.")
                         
-                        col1, col2, col3 = st.columns(3)
-                        col1.metric("Precio Actual", f"${ttm_data['price']:.2f}" if ttm_data.get('price') else "N/A")
-                        col2.metric("EPS (TTM)", f"${ttm_data['eps']:.2f}" if ttm_data.get('eps') else "N/A")
-                        col3.metric("PER (TTM)", f"{per_ttm:.2f}" if isinstance(per_ttm, float) else per_ttm)
                         st.markdown("---")
                         
-                        st.subheader("📈 Análisis Histórico Anual (basado en informes 10-K)")
-                        st.dataframe(eps_price_df[["fy", "Fecha", "EPS Año Fiscal", "Precio", "PER"]].round(2))
-                        
-                        st.subheader("📊 Evolución del EPS y PER Históricos")
-                        fig, ax1 = plt.subplots(figsize=(10, 5))
-                        ax1.set_xlabel("Año Fiscal")
-                        ax1.set_ylabel("EPS (USD)", color="tab:blue")
-                        ax1.plot(eps_price_df["fy"], eps_price_df["EPS Año Fiscal"], marker="o", color="tab:blue", label="EPS")
-                        
-                        ax2 = ax1.twinx()
-                        ax2.set_ylabel("PER", color="tab:red")
-                        ax2.plot(eps_price_df["fy"], eps_price_df["PER"], marker="s", linestyle="--", color="tab:red", label="PER")
-                        st.pyplot(fig)
-                        
-                        st.subheader("📊 Crecimiento y PER Promedio Históricos")
-                        def calcular_crecimiento(data, años):
-                            data = data.dropna()
-                            if len(data) < años: return None
-                            valor_inicial = data.iloc[-años]
-                            if valor_inicial <= 0: return None
-                            return ((data.iloc[-1] / valor_inicial) ** (1 / años) - 1) * 100
+                        with st.container(border=True):
+                            st.subheader("Paso 2: Analizar el Pasado (Datos Históricos)")
+                            st.dataframe(eps_price_df[["fy", "Fecha", "EPS Año Fiscal", "Precio", "PER"]].round(2))
+                            
+                            st.subheader("📊 Evolución del EPS y PER Históricos")
+                            fig, ax1 = plt.subplots(figsize=(10, 5))
+                            ax1.set_xlabel("Año Fiscal")
+                            ax1.set_ylabel("EPS (USD)", color="tab:blue")
+                            ax1.plot(eps_price_df["fy"], eps_price_df["EPS Año Fiscal"], marker="o", color="tab:blue", label="EPS")
+                            
+                            ax2 = ax1.twinx()
+                            ax2.set_ylabel("PER", color="tab:red")
+                            ax2.plot(eps_price_df["fy"], eps_price_df["PER"], marker="s", linestyle="--", color="tab:red", label="PER")
+                            st.pyplot(fig)
+                            
+                            st.subheader("📊 Crecimiento y PER Promedio Históricos")
+                            def calcular_crecimiento(data, años):
+                                data = data.dropna()
+                                if len(data) < años: return None
+                                valor_inicial = data.iloc[-años]
+                                if valor_inicial <= 0: return None
+                                return ((data.iloc[-1] / valor_inicial) ** (1 / años) - 1) * 100
 
-                        eps_crecimiento_10 = calcular_crecimiento(eps_price_df["EPS Año Fiscal"], 10)
-                        eps_crecimiento_5 = calcular_crecimiento(eps_price_df["EPS Año Fiscal"], 5)
-                        per_promedio_10 = eps_price_df["PER"].dropna().tail(10).mean()
-                        per_promedio_5 = eps_price_df["PER"].dropna().tail(5).mean()
+                            eps_crecimiento_10 = calcular_crecimiento(eps_price_df["EPS Año Fiscal"], 10)
+                            eps_crecimiento_5 = calcular_crecimiento(eps_price_df["EPS Año Fiscal"], 5)
+                            per_promedio_10 = eps_price_df["PER"].dropna().tail(10).mean()
+                            per_promedio_5 = eps_price_df["PER"].dropna().tail(5).mean()
 
-                        crecimiento_df = pd.DataFrame({
-                            "Métrica": ["Crecimiento EPS (10 años, CAGR)", "Crecimiento EPS (5 años, CAGR)", "PER Promedio (10 años)", "PER Promedio (5 años)"],
-                            "Valor": [f"{eps_crecimiento_10:.2f} %" if eps_crecimiento_10 is not None else "N/A",
-                                      f"{eps_crecimiento_5:.2f} %" if eps_crecimiento_5 is not None else "N/A",
-                                      f"{per_promedio_10:.2f}" if pd.notna(per_promedio_10) else "N/A",
-                                      f"{per_promedio_5:.2f}" if pd.notna(per_promedio_5) else "N/A"]
-                        })
-                        st.table(crecimiento_df)
+                            crecimiento_df = pd.DataFrame({
+                                "Métrica": ["Crecimiento EPS (10 años, CAGR)", "Crecimiento EPS (5 años, CAGR)", "PER Promedio (10 años)", "PER Promedio (5 años)"],
+                                "Valor": [f"{eps_crecimiento_10:.2f} %" if eps_crecimiento_10 is not None else "N/A",
+                                          f"{eps_crecimiento_5:.2f} %" if eps_crecimiento_5 is not None else "N/A",
+                                          f"{per_promedio_10:.2f}" if pd.notna(per_promedio_10) else "N/A",
+                                          f"{per_promedio_5:.2f}" if pd.notna(per_promedio_5) else "N/A"]
+                            })
+                            st.table(crecimiento_df)
 
 
                     with tab2:
-                        st.subheader("💡 Proyección de Precio Intrínseco")
+                        st.subheader("Paso 3: Proyectar el Futuro (Simulador de Valor)")
                         st.info("La proyección se calcula usando el EPS (TTM) como punto de partida para reflejar la situación más actual de la empresa.")
                         st.markdown("---")
 
                         col1, col2 = st.columns(2)
                         with col1:
                             per_opciones = { "PER (TTM)": per_ttm if isinstance(per_ttm, float) else None, "PER medio 10 años": per_promedio_10, "PER medio 5 años": per_promedio_5, "Ingresar PER manualmente": None }
-                            per_seleccion = st.radio("Seleccione el **PER base**:", [k for k,v in per_opciones.items() if v is not None] + ["Ingresar PER manualmente"], key="per_radio")
+                            # ✅ MEJORA: Tooltips de ayuda
+                            per_seleccion = st.radio("Seleccione el **PER base**:", [k for k,v in per_opciones.items() if v is not None] + ["Ingresar PER manualmente"], 
+                                                   key="per_radio", help="Este es el múltiplo PER que se aplicará a los beneficios futuros para estimar el precio. Puedes usar un promedio histórico, el actual (TTM) o uno personalizado.")
                             if per_seleccion == "Ingresar PER manualmente":
-                                per_base = st.number_input("PER base:", value=10.0, min_value=0.1, step=0.1, format="%.2f", key="per_manual")
+                                per_base = st.number_input("PER base:", min_value=0.1, step=0.1, format="%.2f", key="per_manual")
                             else:
                                 per_base = per_opciones[per_seleccion]
                         
                         with col2:
                             cagr_opciones = { "CAGR últimos 10 años": eps_crecimiento_10, "CAGR últimos 5 años": eps_crecimiento_5, "Ingresar CAGR manualmente": None }
-                            cagr_seleccion = st.radio("Seleccione el **CAGR del EPS**:", [k for k,v in cagr_opciones.items() if v is not None] + ["Ingresar CAGR manualmente"], key="cagr_radio")
+                            # ✅ MEJORA: Tooltips de ayuda
+                            cagr_seleccion = st.radio("Seleccione el **CAGR del EPS**:", [k for k,v in cagr_opciones.items() if v is not None] + ["Ingresar CAGR manualmente"], 
+                                                    key="cagr_radio", help="CAGR (Tasa de Crecimiento Anual Compuesta): Es la tasa a la que se espera que crezcan los beneficios (EPS) cada año.")
                             if cagr_seleccion == "Ingresar CAGR manualmente":
                                 cagr_eps = st.number_input("CAGR del EPS (%):", value=5.0, min_value=-50.0, max_value=100.0, step=0.1, format="%.2f", key="cagr_manual")
                             else:
@@ -190,21 +199,16 @@ if ticker_cik_map:
                                 })
                                 
                                 fig2, ax = plt.subplots(figsize=(12, 6))
-
                                 ten_years_ago = datetime.now() - timedelta(days=365*10)
                                 historical_prices_daily = precios_df[precios_df['Fecha'] > ten_years_ago]
                                 ax.plot(historical_prices_daily['Fecha'], historical_prices_daily['Precio'], color="royalblue", label="Precio Histórico Diario")
-
-                                # --- ✅ CAMBIO CLAVE: LÓGICA DE FECHAS DE PROYECCIÓN ---
-                                # La proyección ahora comienza un año DESPUÉS de la fecha actual.
+                                
                                 start_date_for_projection = datetime.now()
                                 future_dates = [start_date_for_projection + timedelta(days=365 * int(i)) for i in años_futuros]
-
                                 ax.plot(future_dates, proyeccion_df["Precio (Pesimista)"], marker="o", linestyle="--", color="red", label="Proyección Pesimista")
                                 ax.plot(future_dates, proyeccion_df["Precio (Base)"], marker="o", linestyle="--", color="green", label="Proyección Base")
                                 ax.plot(future_dates, proyeccion_df["Precio (Optimista)"], marker="o", linestyle="--", color="orange", label="Proyección Optimista")
-                                # --- FIN DEL CAMBIO ---
-
+                                
                                 ax.set_title(f"Evolución y Proyección de Precio para {ticker}", fontsize=16)
                                 ax.set_xlabel("Fecha")
                                 ax.set_ylabel("Precio (USD)")

@@ -24,24 +24,37 @@ def cargar_mapeo_tickers_ciks(ruta_json):
 
 @st.cache_data
 def obtener_datos_sec(cik):
+    """
+    Obtiene y procesa los datos de EPS de una empresa desde la API de la SEC.
+    """
     url = f"https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}/us-gaap/EarningsPerShareBasic.json"
     headers = {"User-Agent": "ivan@formacionenbolsa.com"}
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     json_data = response.json()
     
-    if "USD/shares" not in json_data["units"]: return None
+    if "USD/shares" not in json_data["units"]:
+        return None
 
     eps_data = pd.DataFrame(json_data["units"]["USD/shares"])
     eps_data = eps_data.rename(columns={"end": "Fecha", "val": "EPS Reportado"})
-    eps_data["Fecha"] = pd.to_datetime(eps_data["Fecha"], errors="coerce")
     
+    # --- ✅ CORRECCIÓN APLICADA AQUÍ ---
+    # Aseguramos que AMBAS columnas de fecha se traten como objetos datetime.
+    eps_data["Fecha"] = pd.to_datetime(eps_data["Fecha"], errors="coerce")
+    eps_data["filed"] = pd.to_datetime(eps_data["filed"], errors="coerce")
+    # --- FIN DE LA CORRECCIÓN ---
+
     mask_10k = eps_data["form"].isin(["10-K", "10-K/A"]) & (eps_data["fp"] == "FY")
     eps_10k_fy = eps_data[mask_10k].copy()
 
-    if eps_10k_fy.empty: return pd.DataFrame()
+    if eps_10k_fy.empty:
+        return pd.DataFrame()
 
+    # Ahora la ordenación por 'filed' es cronológica y correcta.
     eps_10k_fy.sort_values("filed", ascending=False, inplace=True)
+    
+    # Se eliminan duplicados para obtener el informe más reciente de cada año fiscal.
     eps_10k_anual = eps_10k_fy.drop_duplicates(subset="fy", keep="first").sort_values("fy")
     eps_10k_anual = eps_10k_anual.rename(columns={"EPS Reportado": "EPS Año Fiscal"})
     
@@ -51,14 +64,13 @@ def obtener_datos_sec(cik):
 def obtener_datos_yfinance(ticker):
     stock = yf.Ticker(ticker)
     hist = stock.history(period="max")
-    if hist.empty: return None, None
+    if hist.empty:
+        return None, None
     
-    # Datos para TTM
     info = stock.info
     current_price = info.get("currentPrice") or hist['Close'].iloc[-1]
     trailing_eps = info.get("trailingEps")
 
-    # Datos históricos
     prices_df = hist["Close"].reset_index()
     prices_df.columns = ["Fecha", "Precio"]
     prices_df["Fecha"] = pd.to_datetime(prices_df["Fecha"]).dt.tz_localize(None)
@@ -78,6 +90,7 @@ def calcular_per_y_fusionar(eps_df, prices_df):
 
 # ==============================
 # 📌 2. INTERFAZ PRINCIPAL EN STREAMLIT
+# (El resto de la interfaz no necesita cambios)
 # ==============================
 st.title("📊 Analizador de Valor Intrínseco")
 
@@ -109,9 +122,6 @@ if ticker_cik_map:
                     tab1, tab2, tab3 = st.tabs(["📊 Resumen y Gráficos", "💡 Proyección de Valor", "🗃️ Datos Completos"])
 
                     with tab1:
-                        # =========================================================
-                        # ✅ NUEVA SECCIÓN: SITUACIÓN ACTUAL (TTM)
-                        # =========================================================
                         st.subheader(f"Situación Actual (TTM) a {datetime.now().strftime('%d/%m/%Y')}")
                         per_ttm = (ttm_data['price'] / ttm_data['eps']) if ttm_data['price'] and ttm_data['eps'] and ttm_data['eps'] > 0 else "N/A"
                         
@@ -136,7 +146,6 @@ if ticker_cik_map:
                         st.pyplot(fig)
                         
                         st.subheader("📊 Crecimiento y PER Promedio Históricos")
-                        # (El resto del código de la tab1 se mantiene igual)
                         def calcular_crecimiento(data, años):
                             data = data.dropna()
                             if len(data) < años: return None
@@ -158,9 +167,7 @@ if ticker_cik_map:
                         })
                         st.table(crecimiento_df)
 
-
                     with tab2:
-                        # (El código de la tab2 se mantiene igual hasta el gráfico)
                         st.subheader("💡 Proyección de Precio Intrínseco")
                         projection_container = st.container()
 
@@ -208,16 +215,12 @@ if ticker_cik_map:
                                     st.subheader("📊 Proyección de Precio en los Próximos 5 Años")
                                     st.table(proyeccion_df.round(2))
 
-                                    # =========================================================
-                                    # ✅ GRÁFICO DE PROYECCIÓN CORREGIDO
-                                    # =========================================================
                                     st.subheader("📈 Evolución: Precio Histórico vs. Proyección")
                                     fig2, ax = plt.subplots(figsize=(10, 5))
                                     
                                     historical_df = eps_price_df.tail(10)
                                     ax.plot(historical_df["fy"], historical_df["Precio"], marker="o", linestyle="-", color="blue", label="Precio Histórico Anual")
                                     
-                                    # Las proyecciones ahora se dibujan de forma independiente
                                     ax.plot(future_fys, precio_pesimista, marker="o", linestyle="--", color="red", label="Proyección Pesimista")
                                     ax.plot(future_fys, precio_base_val, marker="o", linestyle="--", color="green", label="Proyección Base")
                                     ax.plot(future_fys, precio_optimista, marker="o", linestyle="--", color="orange", label="Proyección Optimista")
@@ -229,7 +232,6 @@ if ticker_cik_map:
                                     st.pyplot(fig2)
 
                     with tab3:
-                        # (El código de la tab3 se mantiene igual)
                         st.subheader("🗃️ Datos Históricos Completos")
                         st.write("A continuación se muestran los datos completos utilizados para el análisis.")
                         st.dataframe(eps_price_df.round(2))

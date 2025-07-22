@@ -106,7 +106,6 @@ if ticker_cik_map:
                     tab1, tab2, tab3 = st.tabs(["📊 Resumen y Gráficos", "💡 Proyección de Valor", "🗃️ Datos Completos"])
 
                     with tab1:
-                        # (Sin cambios en esta pestaña)
                         st.subheader(f"Situación Actual (TTM) a {datetime.now().strftime('%d/%m/%Y')}")
                         per_ttm = (ttm_data['price'] / ttm_data['eps']) if ttm_data.get('price') and ttm_data.get('eps') and ttm_data['eps'] > 0 else "N/A"
                         
@@ -155,7 +154,7 @@ if ticker_cik_map:
 
                     with tab2:
                         st.subheader("💡 Proyección de Precio Intrínseco")
-                        st.write("Selecciona los parámetros y pulsa 'Calcular Proyección' para ver los resultados.")
+                        st.info("La proyección se calcula usando el **EPS (TTM)** como punto de partida para reflejar la situación más actual de la empresa.")
                         st.markdown("---")
 
                         col1, col2 = st.columns(2)
@@ -176,9 +175,10 @@ if ticker_cik_map:
                                 cagr_eps = cagr_opciones[cagr_seleccion]
 
                         if st.button("📊 Calcular Proyección"):
-                            if per_base is not None and cagr_eps is not None:
-                                current_eps = eps_price_df["EPS Año Fiscal"].iloc[-1]
-                                
+                            # --- ✅ CAMBIO CLAVE: Usamos el EPS (TTM) como punto de partida ---
+                            current_eps = ttm_data.get('eps')
+
+                            if per_base is not None and cagr_eps is not None and current_eps is not None:
                                 años_futuros = np.arange(1, 6)
                                 projected_eps = current_eps * ((1 + cagr_eps / 100) ** años_futuros)
                                 
@@ -190,24 +190,25 @@ if ticker_cik_map:
                                     "Precio (Optimista)": projected_eps * (per_base * 1.2)
                                 })
                                 
-                                # --- ✅ CAMBIO CLAVE: LÓGICA DEL GRÁFICO DE PROYECCIÓN ---
                                 fig2, ax = plt.subplots(figsize=(12, 6))
 
-                                # 1. Histórico: Precio diario de los últimos 10 años
                                 ten_years_ago = datetime.now() - timedelta(days=365*10)
                                 historical_prices_daily = precios_df[precios_df['Fecha'] > ten_years_ago]
                                 ax.plot(historical_prices_daily['Fecha'], historical_prices_daily['Precio'], color="royalblue", label="Precio Histórico Diario")
 
-                                # 2. Proyecciones: Parten un año después de la fecha del último informe fiscal
-                                last_fiscal_report_date = eps_price_df['Fecha'].iloc[-1]
+                                last_date = historical_prices_daily['Fecha'].iloc[-1]
+                                last_price = historical_prices_daily['Precio'].iloc[-1]
                                 
-                                # Solución al error de tipo y lógica correcta de fechas
-                                future_dates = [last_fiscal_report_date + timedelta(days=365 * int(i)) for i in años_futuros]
+                                future_dates = [last_date + timedelta(days=365 * int(i)) for i in años_futuros]
 
-                                ax.plot(future_dates, proyeccion_df["Precio (Pesimista)"], marker="o", linestyle="--", color="red", label="Proyección Pesimista")
-                                ax.plot(future_dates, proyeccion_df["Precio (Base)"], marker="o", linestyle="--", color="green", label="Proyección Base")
-                                ax.plot(future_dates, proyeccion_df["Precio (Optimista)"], marker="o", linestyle="--", color="orange", label="Proyección Optimista")
-                                # --- FIN DEL CAMBIO ---
+                                plot_dates = [last_date] + future_dates
+                                plot_pesimista = [last_price] + list(proyeccion_df["Precio (Pesimista)"])
+                                plot_base = [last_price] + list(proyeccion_df["Precio (Base)"])
+                                plot_optimista = [last_price] + list(proyeccion_df["Precio (Optimista)"])
+
+                                ax.plot(plot_dates, plot_pesimista, marker=".", linestyle="--", color="red", label="Proyección Pesimista")
+                                ax.plot(plot_dates, plot_base, marker=".", linestyle="--", color="green", label="Proyección Base")
+                                ax.plot(plot_dates, plot_optimista, marker=".", linestyle="--", color="orange", label="Proyección Optimista")
 
                                 ax.set_title(f"Evolución y Proyección de Precio para {ticker}", fontsize=16)
                                 ax.set_xlabel("Fecha")
@@ -215,10 +216,10 @@ if ticker_cik_map:
                                 ax.legend()
                                 ax.grid(True, linestyle='--', alpha=0.6)
                                 plt.tight_layout()
-
+                                
                                 st.session_state.projection_results = { "table": proyeccion_df, "figure": fig2 }
                             else:
-                                st.warning("Por favor, asegúrate de que los valores de PER y CAGR son válidos antes de calcular.")
+                                st.warning("No se puede calcular la proyección. Asegúrate de que los valores de PER, CAGR y EPS (TTM) son válidos.")
                                 st.session_state.projection_results = None
 
                         if st.session_state.get('projection_results'):

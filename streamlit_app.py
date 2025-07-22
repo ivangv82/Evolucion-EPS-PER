@@ -106,12 +106,14 @@ if ticker_cik_map:
                     tab1, tab2, tab3 = st.tabs(["📊 Resumen y Gráficos", "💡 Proyección de Valor", "🗃️ Datos Completos"])
 
                     with tab1:
+                        # ✅ MEJORA: Títulos como Pasos y contenedores para guiar al usuario
                         with st.container(border=True):
                             st.subheader("Paso 1: Entender el Presente (Situación Actual)")
                             per_ttm = (ttm_data['price'] / ttm_data['eps']) if ttm_data.get('price') and ttm_data.get('eps') and ttm_data['eps'] > 0 else "N/A"
                             
                             col1, col2, col3 = st.columns(3)
                             col1.metric("Precio Actual", f"${ttm_data['price']:.2f}" if ttm_data.get('price') else "N/A")
+                            # ✅ MEJORA: Tooltips de ayuda
                             col2.metric("EPS (TTM)", f"${ttm_data['eps']:.2f}" if ttm_data.get('eps') else "N/A", help="EPS (Trailing Twelve Months): Suma de los beneficios por acción de los últimos cuatro trimestres reportados. Es el dato de beneficios más reciente.")
                             col3.metric("PER (TTM)", f"{per_ttm:.2f}" if isinstance(per_ttm, float) else per_ttm, help="Price-to-Earnings (TTM): Se calcula dividiendo el Precio Actual entre el EPS (TTM). Indica cuántas veces se está pagando el beneficio del último año.")
                         
@@ -163,15 +165,17 @@ if ticker_cik_map:
                         col1, col2 = st.columns(2)
                         with col1:
                             per_opciones = { "PER (TTM)": per_ttm if isinstance(per_ttm, float) else None, "PER medio 10 años": per_promedio_10, "PER medio 5 años": per_promedio_5, "Ingresar PER manualmente": None }
+                            # ✅ MEJORA: Tooltips de ayuda
                             per_seleccion = st.radio("Seleccione el **PER base**:", [k for k,v in per_opciones.items() if v is not None] + ["Ingresar PER manualmente"], 
                                                    key="per_radio", help="Este es el múltiplo PER que se aplicará a los beneficios futuros para estimar el precio. Puedes usar un promedio histórico, el actual (TTM) o uno personalizado.")
                             if per_seleccion == "Ingresar PER manualmente":
-                                per_base = st.number_input("PER base:", min_value=0.1, step=0.1, format="%.2f", key="per_manual")
+                                per_base = st.number_input("PER base:", value=10.0, min_value=0.1, step=0.1, format="%.2f", key="per_manual")
                             else:
                                 per_base = per_opciones[per_seleccion]
                         
                         with col2:
                             cagr_opciones = { "CAGR últimos 10 años": eps_crecimiento_10, "CAGR últimos 5 años": eps_crecimiento_5, "Ingresar CAGR manualmente": None }
+                            # ✅ MEJORA: Tooltips de ayuda
                             cagr_seleccion = st.radio("Seleccione el **CAGR del EPS**:", [k for k,v in cagr_opciones.items() if v is not None] + ["Ingresar CAGR manualmente"], 
                                                     key="cagr_radio", help="CAGR (Tasa de Crecimiento Anual Compuesta): Es la tasa a la que se espera que crezcan los beneficios (EPS) cada año.")
                             if cagr_seleccion == "Ingresar CAGR manualmente":
@@ -223,29 +227,6 @@ if ticker_cik_map:
                             st.table(st.session_state.projection_results["table"].round(2))
                             st.subheader("📈 Gráfico de Evolución y Proyección")
                             st.pyplot(st.session_state.projection_results["figure"])
-
-                            # --- ✅ MEJORA: Conclusión del Analista ---
-                            st.markdown("---")
-                            st.subheader("🎯 Conclusión del Análisis")
-
-                            precio_actual = ttm_data.get('price')
-                            # Asegurarnos de que los datos existen antes de compararlos
-                            if precio_actual and 'table' in st.session_state.projection_results:
-                                precio_proyectado_base = st.session_state.projection_results["table"]["Precio (Base)"].iloc[0]
-                                precio_proyectado_pesimista = st.session_state.projection_results["table"]["Precio (Pesimista)"].iloc[0]
-
-                                with st.container(border=True):
-                                    if precio_actual < precio_proyectado_pesimista:
-                                        st.success(f"**Veredicto: Potencialmente Infravalorada**")
-                                        st.write(f"El precio actual (${precio_actual:.2f}) se encuentra por debajo del escenario de precio proyectado más pesimista para el próximo año (${precio_proyectado_pesimista:.2f}). Según este modelo y los parámetros seleccionados, la acción podría tener un margen de seguridad interesante.")
-                                    elif precio_actual < precio_proyectado_base:
-                                        st.info(f"**Veredicto: Potencialmente a un Precio Razonable/Atractivo**")
-                                        st.write(f"El precio actual (${precio_actual:.2f}) está por debajo de la proyección base (${precio_proyectado_base:.2f}), pero por encima del escenario pesimista. El modelo sugiere que la acción no está cara.")
-                                    else:
-                                        st.warning(f"**Veredicto: Potencialmente Sobrevalorada o Exigente**")
-                                        st.write(f"El precio actual (${precio_actual:.2f}) supera la proyección del escenario base (${precio_proyectado_base:.2f}). El mercado podría estar asignando unas expectativas de crecimiento o valoración superiores a las que hemos utilizado en el modelo.")
-                            # --- FIN DE LA MEJORA ---
-
 
                     with tab3:
                         st.subheader("🗃️ Datos Históricos Completos")

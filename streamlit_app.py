@@ -9,9 +9,9 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 
 # ==============================
-# 📌 1. FUNCIONES OPTIMIZADAS Y CACHEADAS
-# (Sin cambios en esta sección)
+# 📌 1. FUNCIONES
 # ==============================
+
 @st.cache_data
 def cargar_mapeo_tickers_ciks(ruta_json):
     if not os.path.exists(ruta_json):
@@ -29,19 +29,25 @@ def obtener_datos_sec(cik):
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     json_data = response.json()
+    
     if "USD/shares" not in json_data["units"]:
         return None
+
     eps_data = pd.DataFrame(json_data["units"]["USD/shares"])
     eps_data = eps_data.rename(columns={"end": "Fecha", "val": "EPS Reportado"})
     eps_data["Fecha"] = pd.to_datetime(eps_data["Fecha"], errors="coerce")
     eps_data["filed"] = pd.to_datetime(eps_data["filed"], errors="coerce")
+    
     mask = eps_data["form"].isin(["10-K", "10-K/A"]) & (eps_data["fp"] == "FY")
     eps_anual_data = eps_data[mask].copy()
+
     if eps_anual_data.empty:
         return pd.DataFrame()
+
     eps_anual_data.sort_values(by=["fy", "filed"], ascending=[False, False], inplace=True)
     final_eps = eps_anual_data.drop_duplicates(subset="fy", keep="first")
     final_eps.sort_values(by="fy", ascending=True, inplace=True)
+    
     final_eps = final_eps.rename(columns={"EPS Reportado": "EPS Año Fiscal"})
     return final_eps
 
@@ -51,18 +57,21 @@ def obtener_datos_yfinance(ticker):
     hist = stock.history(period="max")
     if hist.empty:
         return None, None
+    
     info = stock.info
     current_price = info.get("currentPrice") or hist['Close'].iloc[-1]
     trailing_eps = info.get("trailingEps")
     prices_df = hist["Close"].reset_index()
     prices_df.columns = ["Fecha", "Precio"]
     prices_df["Fecha"] = pd.to_datetime(prices_df["Fecha"]).dt.tz_localize(None)
+    
     return prices_df, {"price": current_price, "eps": trailing_eps}
 
 def calcular_per_y_fusionar(eps_df, prices_df):
     eps_df_sorted = eps_df.sort_values("Fecha")
     prices_df_sorted = prices_df.sort_values("Fecha")
     eps_price_df = pd.merge_asof(eps_df_sorted, prices_df_sorted, on="Fecha", direction="backward")
+    
     eps_price_df["PER"] = np.where(eps_price_df["EPS Año Fiscal"] > 0,
                                    eps_price_df["Precio"] / eps_price_df["EPS Año Fiscal"],
                                    None)
@@ -70,7 +79,7 @@ def calcular_per_y_fusionar(eps_df, prices_df):
     return eps_price_df
 
 # ==============================
-# 📌 2. INTERFAZ PRINCIPAL EN STREAMLIT
+# 📌 2. INTERFAZ PRINCIPAL
 # ==============================
 st.title("📊 Analizador de Valor Intrínseco")
 
@@ -81,12 +90,9 @@ if ticker_cik_map:
     ticker = st.text_input("Introduce el ticker de la empresa (Ej: AAPL, MSFT, GOOGL):", key="ticker_input").strip().upper()
 
     if ticker:
-        # --- ✅ GESTIÓN DE ESTADO PARA LAS PROYECCIONES ---
-        # Si el ticker cambia, reseteamos los resultados de la proyección guardada.
         if 'current_ticker' not in st.session_state or st.session_state.current_ticker != ticker:
             st.session_state.current_ticker = ticker
             st.session_state.projection_results = None
-        # --- FIN DE LA GESTIÓN DE ESTADO ---
 
         CIK = ticker_cik_map.get(ticker)
         
@@ -109,7 +115,6 @@ if ticker_cik_map:
                     tab1, tab2, tab3 = st.tabs(["📊 Resumen y Gráficos", "💡 Proyección de Valor", "🗃️ Datos Completos"])
 
                     with tab1:
-                        # (Sin cambios en esta pestaña)
                         st.subheader(f"Situación Actual (TTM) a {datetime.now().strftime('%d/%m/%Y')}")
                         per_ttm = (ttm_data['price'] / ttm_data['eps']) if ttm_data.get('price') and ttm_data.get('eps') and ttm_data['eps'] > 0 else "N/A"
                         
@@ -157,11 +162,10 @@ if ticker_cik_map:
 
 
                     with tab2:
-                        # --- ✅ CAMBIO CLAVE: LÓGICA DE "CALCULAR" ---
                         st.subheader("💡 Proyección de Precio Intrínseco")
                         st.write("Selecciona los parámetros y pulsa 'Calcular Proyección' para ver los resultados.")
+                        st.markdown("---")
 
-                        # 1. Los controles para seleccionar parámetros están siempre visibles.
                         col1, col2 = st.columns(2)
                         with col1:
                             per_opciones = { "PER (TTM)": per_ttm if isinstance(per_ttm, float) else None, "PER medio 10 años": per_promedio_10, "PER medio 5 años": per_promedio_5, "Ingresar PER manualmente": None }
@@ -179,10 +183,8 @@ if ticker_cik_map:
                             else:
                                 cagr_eps = cagr_opciones[cagr_seleccion]
 
-                        # 2. El botón "Calcular" que dispara el análisis.
                         if st.button("📊 Calcular Proyección"):
-                            if per_base and cagr_eps is not None:
-                                # Se realizan los cálculos
+                            if per_base is not None and cagr_eps is not None:
                                 current_eps = eps_price_df["EPS Año Fiscal"].iloc[-1]
                                 current_fy = int(eps_price_df["fy"].iloc[-1])
                                 años_futuros = np.arange(1, 6)
@@ -207,16 +209,11 @@ if ticker_cik_map:
                                 ax.legend()
                                 ax.grid(True, linestyle='--', alpha=0.6)
                                 
-                                # 3. Guardamos los resultados en el estado de la sesión.
-                                st.session_state.projection_results = {
-                                    "table": proyeccion_df,
-                                    "figure": fig2
-                                }
+                                st.session_state.projection_results = { "table": proyeccion_df, "figure": fig2 }
                             else:
                                 st.warning("Por favor, asegúrate de que los valores de PER y CAGR son válidos antes de calcular.")
                                 st.session_state.projection_results = None
 
-                        # 4. Mostramos los resultados si existen en el estado de la sesión.
                         if st.session_state.get('projection_results'):
                             st.markdown("---")
                             st.subheader("📊 Proyección de Precio en los Próximos 5 Años")
@@ -224,9 +221,7 @@ if ticker_cik_map:
                             st.subheader("📈 Evolución: Precio Histórico vs. Proyección")
                             st.pyplot(st.session_state.projection_results["figure"])
 
-
                     with tab3:
-                        # (Sin cambios en esta pestaña)
                         st.subheader("🗃️ Datos Históricos Completos")
                         st.write("A continuación se muestran los datos completos utilizados para el análisis.")
                         st.dataframe(eps_price_df.round(2))
